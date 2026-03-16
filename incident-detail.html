@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SENTINEL — Incident Detail</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+
+  <style>
+    .breadcrumb {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .breadcrumb a { color: var(--text-dim); }
+    .breadcrumb a:hover { color: var(--cyan); }
+    .breadcrumb span { color: var(--border-glow); }
+
+    .incident-banner {
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+    .incident-banner.critical { border-color: var(--red-dim); background: rgba(255,43,74,0.04); }
+    .incident-banner.high     { border-color: rgba(255,124,42,0.3); background: rgba(255,124,42,0.04); }
+    .incident-banner.medium   { border-color: rgba(245,197,24,0.3); background: rgba(245,197,24,0.04); }
+    .incident-banner.low      { border-color: rgba(0,230,118,0.3); background: rgba(0,230,118,0.04); }
+
+    .incident-banner::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+    }
+    .incident-banner.critical::before { background: var(--red); }
+    .incident-banner.high::before { background: var(--orange); }
+    .incident-banner.medium::before { background: var(--yellow); }
+    .incident-banner.low::before { background: var(--green); }
+
+    .incident-id-display {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+    }
+
+    .incident-title-display {
+      font-family: var(--cond);
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.6rem;
+      line-height: 1.3;
+    }
+
+    .state-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .state-btn {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.8rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: transparent;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .state-btn:hover { border-color: var(--cyan-dim); color: var(--cyan); background: var(--cyan-glow); }
+    .state-btn.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-glow); cursor: default; }
+    .state-btn[data-state="resolved"].active { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.1); }
+    .state-btn[data-state="resolved"]:hover { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.1); }
+
+    .ip-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--bg-4);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--orange);
+    }
+
+    .ip-reputation {
+      margin-top: 0.75rem;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+    }
+
+    .rep-score {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--red);
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+
+    .rep-label { color: var(--text-muted); font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; }
+
+    .note-input-area { display: flex; gap: 0.5rem; flex-direction: column; }
+
+    .evidence-upload {
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .evidence-upload:hover { border-color: var(--cyan-dim); color: var(--cyan); background: var(--cyan-glow); }
+    .evidence-upload input { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="app-shell" id="shell">
+  <main class="main-content" id="main">
+    <div class="loading" style="padding:3rem;text-align:center;">Loading incident</div>
+  </main>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const INCIDENT_ID = params.get('id');
+
+let incident = null;
+
+async function init() {
+  if (!INCIDENT_ID) {
+    document.getElementById('main').innerHTML = `<div class="empty-state">No incident ID specified. <a href="incidents.html">← Back to incidents</a></div>`;
+    return;
+  }
+
+  const allIncidents = await DataLayer.getIncidents();
+  const critCount = allIncidents.filter(i => i.severity === 'critical' && !['resolved','closed'].includes(i.state)).length;
+
+  document.getElementById('shell').insertAdjacentHTML('afterbegin', buildTopbar(critCount) + NAV_HTML);
+  startClock(document.getElementById('clock'));
+  setActiveNav();
+
+  incident = await DataLayer.getIncident(INCIDENT_ID);
+
+  if (!incident) {
+    document.getElementById('main').innerHTML = `<div class="empty-state">Incident not found. <a href="incidents.html">← Back to incidents</a></div>`;
+    return;
+  }
+
+  renderDetail();
+}
+
+function renderDetail() {
+  const inc = incident;
+  const notes = inc.notes || [];
+  const evidence = inc.evidence || [];
+  const timeline = [...(inc.timeline || [])].reverse();
+
+  document.getElementById('main').innerHTML = `
+    <!-- Breadcrumb -->
+    <div class="breadcrumb">
+      <a href="index.html">Overview</a>
+      <span>›</span>
+      <a href="incidents.html">Incidents</a>
+      <span>›</span>
+      ${inc.id}
+    </div>
+
+    <!-- Banner -->
+    <div class="incident-banner ${inc.severity}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <div class="incident-id-display">${inc.id} · ${inc.attackType || 'Unknown Type'} · Opened ${timeAgo(inc.createdAt)}</div>
+          <div class="incident-title-display">${inc.title}</div>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            ${severityBadge(inc.severity)}
+            ${stateBadge(inc.state)}
+            <div class="tag-list">
+              ${(inc.tags || []).map(t => `<span class="tag-pill">${t}</span>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div class="mono text-muted" style="font-size:0.65rem;margin-bottom:0.3rem;">UPDATE STATE</div>
+          <div class="state-actions" id="stateActions">
+            ${['open','investigating','contained','resolved','closed'].map(s => `
+              <button class="state-btn ${inc.state === s ? 'active' : ''}" data-state="${s}" onclick="updateState('${s}')">${s}</button>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail Grid -->
+    <div class="detail-grid">
+
+      <!-- LEFT: Main info -->
+      <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+        <!-- Description -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Description</span></div>
+          <div class="panel-body">
+            <p style="font-size:0.9rem;line-height:1.7;color:var(--text);">${inc.description || 'No description provided.'}</p>
+          </div>
+        </div>
+
+        <!-- Metadata -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Incident Metadata</span></div>
+          <div class="panel-body">
+            <div class="detail-meta-grid">
+              <div class="meta-item">
+                <div class="meta-label">Source IP / Indicator</div>
+                <div class="meta-value">
+                  ${inc.sourceIP ? `<span class="ip-chip">⬡ ${inc.sourceIP}</span>` : '—'}
+                </div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Affected System</div>
+                <div class="meta-value mono" style="font-size:0.85rem;">${inc.affectedSystem || '—'}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Assignee</div>
+                <div class="meta-value">${inc.assignee || 'Unassigned'}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Attack Type</div>
+                <div class="meta-value">${inc.attackType || '—'}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Created</div>
+                <div class="meta-value mono" style="font-size:0.8rem;">${formatDate(inc.createdAt)}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Last Updated</div>
+                <div class="meta-value mono" style="font-size:0.8rem;">${formatDate(inc.updatedAt)}</div>
+              </div>
+            </div>
+
+            ${inc.sourceIP ? `
+            <div class="ip-reputation" id="ipReputation" style="margin-top:1rem;">
+              <div class="rep-label">IP Reputation Lookup</div>
+              <div id="repContent">
+                <button class="btn btn-ghost" style="margin-top:0.5rem;font-size:0.72rem;" onclick="lookupIP('${inc.sourceIP}')">
+                  ⬡ Lookup ${inc.sourceIP}
+                </button>
+              </div>
+            </div>` : ''}
+          </div>
+        </div>
+
+        <!-- Investigation Notes -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Investigation Notes</span>
+            <span class="mono text-muted" style="font-size:0.65rem;">${notes.length} entries</span>
+          </div>
+          <div class="panel-body">
+            <div id="notesContainer">
+              ${notes.length === 0 ? `<div class="empty-state" style="padding:1rem;">No notes yet. Add the first note below.</div>` : ''}
+              ${notes.map(n => `
+                <div class="note-card">
+                  <div class="note-meta">
+                    <span class="note-author">${n.author}</span>
+                    <span class="note-ts">${formatDate(n.ts)}</span>
+                  </div>
+                  <div class="note-text">${escapeHtml(n.text)}</div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="note-input-area" style="margin-top:1rem;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Your Name</label>
+                  <input type="text" id="noteAuthor" placeholder="Analyst name">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Note</label>
+                <textarea id="noteText" rows="3" placeholder="Document your findings, actions taken, or next steps..."></textarea>
+              </div>
+              <div style="display:flex;justify-content:flex-end;">
+                <button class="btn btn-primary" onclick="addNote()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add Note
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Evidence -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Evidence & Attachments</span>
+            <span class="mono text-muted" style="font-size:0.65rem;">${evidence.length} files</span>
+          </div>
+          <div class="panel-body">
+            <div id="evidenceContainer">
+              ${evidence.length === 0 ? '<div class="empty-state" style="padding:0.5rem 0;">No evidence attached.</div>' : ''}
+              ${evidence.map(e => `
+                <div class="evidence-item">
+                  <span class="evidence-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  </span>
+                  <span class="evidence-name">${e.name}</span>
+                  <span class="evidence-size">${e.size}</span>
+                  <span class="mono text-muted" style="font-size:0.65rem;">${timeAgo(e.uploadedAt)}</span>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="evidence-upload" style="margin-top:0.75rem;" onclick="document.getElementById('fileInput').click()">
+              <input type="file" id="fileInput" multiple onchange="attachEvidence(this)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 0.4rem;display:block;opacity:0.5;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Click to attach evidence files
+              <div style="font-size:0.62rem;margin-top:0.2rem;opacity:0.5;">Logs, screenshots, packet captures, memory dumps</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /LEFT -->
+
+      <!-- RIGHT: Timeline -->
+      <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+        <!-- IP Reputation widget for non-private IPs -->
+        <div class="panel" id="repPanel" style="${isPrivateIP(inc.sourceIP) ? 'display:none' : ''}">
+          <div class="panel-header"><span class="panel-title">Threat Intel</span></div>
+          <div class="panel-body" id="threatIntelBody">
+            ${renderThreatIntel(inc)}
+          </div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Incident Timeline</span>
+            <span class="mono text-muted" style="font-size:0.65rem;">${timeline.length} events</span>
+          </div>
+          <div class="panel-body">
+            ${timeline.length === 0 ? `<div class="empty-state">No timeline events.</div>` : ''}
+            <div class="timeline" id="timelineContainer">
+              ${timeline.map(t => `
+                <div class="timeline-item">
+                  <div class="timeline-event">${escapeHtml(t.event)}</div>
+                  <div class="timeline-ts">${formatDate(t.ts)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Resolution Report (if resolved) -->
+        ${['resolved','closed'].includes(inc.state) ? `
+        <div class="panel" style="border-color:rgba(0,230,118,0.3);">
+          <div class="panel-header" style="background:rgba(0,230,118,0.05);">
+            <span class="panel-title" style="color:var(--green);">✓ Resolution Summary</span>
+          </div>
+          <div class="panel-body">
+            <div style="font-family:var(--mono);font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;">
+              ${inc.state.toUpperCase()} · ${timeAgo(inc.updatedAt)}
+            </div>
+            <p style="font-size:0.85rem;color:var(--text);">
+              Incident has been ${inc.state}. Review notes for full resolution details.
+            </p>
+          </div>
+        </div>` : ''}
+
+        <!-- Quick Actions -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Quick Actions</span></div>
+          <div class="panel-body" style="display:flex;flex-direction:column;gap:0.5rem;">
+            <button class="btn btn-ghost" style="justify-content:flex-start;" onclick="copyReport()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy Incident Report
+            </button>
+            <button class="btn btn-ghost" style="justify-content:flex-start;" onclick="exportJson()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+              Export as JSON
+            </button>
+            <button class="btn btn-danger" style="justify-content:flex-start;" onclick="escalate()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Escalate to CISO
+            </button>
+          </div>
+        </div>
+
+      </div><!-- /RIGHT -->
+    </div>
+  `;
+}
+
+// ── Actions ───────────────────────────────────────────────────
+async function updateState(newState) {
+  if (incident.state === newState) return;
+  try {
+    await DataLayer.updateState(INCIDENT_ID, newState);
+    incident.state = newState;
+    showToast(`State updated to: ${newState}`, 'success');
+    // Update buttons
+    document.querySelectorAll('.state-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.state === newState);
+    });
+    // Update badge in banner
+    const banner = document.querySelector('.incident-banner');
+    if (banner) {
+      banner.className = `incident-banner ${incident.severity}`;
+    }
+    // Reload timeline
+    incident = await DataLayer.getIncident(INCIDENT_ID);
+    const container = document.getElementById('timelineContainer');
+    if (container) {
+      const timeline = [...(incident.timeline || [])].reverse();
+      container.innerHTML = timeline.map(t => `
+        <div class="timeline-item">
+          <div class="timeline-event">${escapeHtml(t.event)}</div>
+          <div class="timeline-ts">${formatDate(t.ts)}</div>
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    showToast('Error updating state: ' + err.message, 'error');
+  }
+}
+
+async function addNote() {
+  const author = document.getElementById('noteAuthor').value.trim();
+  const text = document.getElementById('noteText').value.trim();
+  if (!author || !text) {
+    showToast('Enter your name and a note.', 'error');
+    return;
+  }
+  const note = { author, text, ts: new Date().toISOString() };
+  try {
+    await DataLayer.addNote(INCIDENT_ID, note);
+    document.getElementById('noteText').value = '';
+    showToast('Note added.', 'success');
+
+    const container = document.getElementById('notesContainer');
+    const card = document.createElement('div');
+    card.className = 'note-card';
+    card.innerHTML = `
+      <div class="note-meta">
+        <span class="note-author">${note.author}</span>
+        <span class="note-ts">${formatDate(note.ts)}</span>
+      </div>
+      <div class="note-text">${escapeHtml(note.text)}</div>
+    `;
+    const empty = container.querySelector('.empty-state');
+    if (empty) empty.remove();
+    container.appendChild(card);
+    container.scrollTop = container.scrollHeight;
+
+    // Refresh timeline
+    incident = await DataLayer.getIncident(INCIDENT_ID);
+    const tc = document.getElementById('timelineContainer');
+    if (tc) {
+      const timeline = [...(incident.timeline || [])].reverse();
+      tc.innerHTML = timeline.map(t => `
+        <div class="timeline-item">
+          <div class="timeline-event">${escapeHtml(t.event)}</div>
+          <div class="timeline-ts">${formatDate(t.ts)}</div>
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    showToast('Error adding note: ' + err.message, 'error');
+  }
+}
+
+async function attachEvidence(input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+
+  for (const file of files) {
+    const fileInfo = {
+      name: file.name,
+      size: formatFileSize(file.size),
+      uploadedAt: new Date().toISOString()
+    };
+    try {
+      await DataLayer.addEvidence(INCIDENT_ID, fileInfo);
+      const container = document.getElementById('evidenceContainer');
+      const empty = container.querySelector('.empty-state');
+      if (empty) empty.remove();
+      const item = document.createElement('div');
+      item.className = 'evidence-item';
+      item.innerHTML = `
+        <span class="evidence-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <span class="evidence-name">${fileInfo.name}</span>
+        <span class="evidence-size">${fileInfo.size}</span>
+        <span class="mono text-muted" style="font-size:0.65rem;">just now</span>
+      `;
+      container.appendChild(item);
+      showToast(`Evidence attached: ${file.name}`, 'success');
+    } catch (err) {
+      showToast('Error attaching evidence.', 'error');
+    }
+  }
+  input.value = '';
+}
+
+// ── Quick Actions ─────────────────────────────────────────────
+function copyReport() {
+  const inc = incident;
+  const report = [
+    `SECURITY INCIDENT REPORT`,
+    `========================`,
+    `ID: ${inc.id}`,
+    `Title: ${inc.title}`,
+    `Severity: ${inc.severity?.toUpperCase()}`,
+    `State: ${inc.state}`,
+    `Attack Type: ${inc.attackType}`,
+    `Source IP: ${inc.sourceIP || 'N/A'}`,
+    `Affected System: ${inc.affectedSystem || 'N/A'}`,
+    `Assignee: ${inc.assignee || 'Unassigned'}`,
+    `Created: ${formatDate(inc.createdAt)}`,
+    ``,
+    `DESCRIPTION:`,
+    inc.description,
+    ``,
+    `TIMELINE:`,
+    ...(inc.timeline || []).map(t => `[${formatDate(t.ts)}] ${t.event}`),
+    ``,
+    `NOTES (${(inc.notes || []).length}):`,
+    ...(inc.notes || []).map(n => `[${formatDate(n.ts)}] ${n.author}: ${n.text}`)
+  ].join('\n');
+
+  navigator.clipboard.writeText(report).then(() => {
+    showToast('Report copied to clipboard.', 'success');
+  });
+}
+
+function exportJson() {
+  const json = JSON.stringify(incident, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${incident.id}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Exported JSON.', 'success');
+}
+
+function escalate() {
+  showToast(`Escalation alert sent to CISO for ${incident.id}.`, 'warning');
+}
+
+// ── IP Reputation (simulated) ─────────────────────────────────
+function lookupIP(ip) {
+  const repEl = document.getElementById('repContent');
+  if (!repEl) return;
+  repEl.innerHTML = `<span class="mono text-muted" style="font-size:0.72rem;">Looking up ${ip}...</span>`;
+
+  setTimeout(() => {
+    const isKnownBad = !isPrivateIP(ip);
+    const score = isKnownBad ? Math.floor(Math.random() * 40) + 55 : Math.floor(Math.random() * 20);
+    const scoreColor = score > 70 ? 'var(--red)' : score > 40 ? 'var(--orange)' : 'var(--green)';
+    const verdict = score > 70 ? 'HIGH RISK' : score > 40 ? 'MEDIUM RISK' : 'LOW RISK';
+
+    repEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:0.75rem;align-items:center;">
+        <div>
+          <div class="rep-label">Risk Score</div>
+          <div class="rep-score" style="color:${scoreColor};">${score}</div>
+        </div>
+        <div>
+          <div style="font-size:0.7rem;color:${scoreColor};font-weight:700;letter-spacing:0.08em;">${verdict}</div>
+          <div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;">
+            ${isKnownBad ? 'Known malicious actor · Tor exit node' : 'No known malicious activity'}<br>
+            Country: ${isKnownBad ? 'NL / Netherlands' : 'ZA / South Africa'}<br>
+            ASN: ${isKnownBad ? 'AS60729 · Frantech Solutions' : 'AS37004 · Telkom SA'}
+          </div>
+        </div>
+      </div>
+    `;
+  }, 800);
+}
+
+function renderThreatIntel(inc) {
+  if (!inc.sourceIP || isPrivateIP(inc.sourceIP)) return '<div class="empty-state">No external indicators to analyze.</div>';
+  return `
+    <div style="font-family:var(--mono);font-size:0.72rem;color:var(--text-muted);margin-bottom:0.75rem;">SOURCE INDICATOR</div>
+    <div class="ip-chip" style="margin-bottom:0.75rem;">⬡ ${inc.sourceIP}</div>
+    <button class="btn btn-ghost" style="width:100%;justify-content:center;" onclick="lookupIP('${inc.sourceIP}')">
+      Run IP Reputation Lookup
+    </button>
+  `;
+}
+
+function isPrivateIP(ip) {
+  if (!ip) return true;
+  return ip.startsWith('10.') || ip.startsWith('192.168.') ||
+    ip.startsWith('172.') || ip === 'localhost' || ip.includes('.internal');
+}
+
+// ── Utilities ─────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+init();
+</script>
+</body>
+</html>

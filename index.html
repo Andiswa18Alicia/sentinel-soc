@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SENTINEL — Security Operations Center</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</head>
+<body>
+
+<div class="app-shell" id="shell">
+  <!-- Topbar injected by JS -->
+  <!-- Sidebar injected by JS -->
+  <main class="main-content" id="main"></main>
+</div>
+
+<script>
+// ── Chart defaults ────────────────────────────────────────────
+Chart.defaults.color = '#5a7a96';
+Chart.defaults.borderColor = '#1e2d3d';
+Chart.defaults.font.family = "'Share Tech Mono', monospace";
+Chart.defaults.font.size = 11;
+
+// ── Render shell ──────────────────────────────────────────────
+async function init() {
+  const incidents = await DataLayer.getIncidents();
+  const critCount = incidents.filter(i => i.severity === 'critical' && i.state !== 'resolved' && i.state !== 'closed').length;
+
+  // Inject topbar + sidebar
+  document.getElementById('shell').insertAdjacentHTML('afterbegin', buildTopbar(critCount) + NAV_HTML);
+  startClock(document.getElementById('clock'));
+  setActiveNav();
+
+  renderDashboard(incidents);
+}
+
+// ── Stats computation ─────────────────────────────────────────
+function computeStats(incidents) {
+  const open = incidents.filter(i => !['resolved','closed'].includes(i.state));
+  return {
+    total: incidents.length,
+    critical: incidents.filter(i => i.severity === 'critical').length,
+    high: incidents.filter(i => i.severity === 'high').length,
+    open: open.length,
+    resolved: incidents.filter(i => i.state === 'resolved' || i.state === 'closed').length,
+    slaAt: incidents.filter(i => {
+      if (!i.createdAt) return false;
+      const age = (Date.now() - new Date(i.createdAt)) / 3600000;
+      return age > 20 && !['resolved','closed'].includes(i.state);
+    }).length
+  };
+}
+
+// ── Attack type distribution ──────────────────────────────────
+function getAttackTypes(incidents) {
+  const counts = {};
+  incidents.forEach(i => { counts[i.attackType || 'Unknown'] = (counts[i.attackType || 'Unknown'] || 0) + 1; });
+  return counts;
+}
+
+// ── Activity by day (last 14 days) ───────────────────────────
+function getActivity(incidents) {
+  const days = {};
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    days[d.toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' })] = 0;
+  }
+  incidents.forEach(inc => {
+    if (!inc.createdAt) return;
+    const key = new Date(inc.createdAt).toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' });
+    if (key in days) days[key]++;
+  });
+  return days;
+}
+
+// ── Severity distribution ─────────────────────────────────────
+function getSeverityDist(incidents) {
+  return {
+    critical: incidents.filter(i => i.severity === 'critical').length,
+    high:     incidents.filter(i => i.severity === 'high').length,
+    medium:   incidents.filter(i => i.severity === 'medium').length,
+    low:      incidents.filter(i => i.severity === 'low').length,
+  };
+}
+
+// ── Render ────────────────────────────────────────────────────
+function renderDashboard(incidents) {
+  const s = computeStats(incidents);
+  const recent = incidents.slice(0, 5);
+  const attackTypes = getAttackTypes(incidents);
+  const activity = getActivity(incidents);
+  const severityDist = getSeverityDist(incidents);
+
+  document.getElementById('main').innerHTML = `
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Security Operations Center</h1>
+        <p class="page-subtitle mono">// OVERVIEW · REAL-TIME INCIDENT DASHBOARD</p>
+      </div>
+      <a href="incidents.html" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Incident
+      </a>
+    </div>
+
+    <!-- Demo Banner -->
+    ${DEMO_MODE ? `
+    <div style="background:rgba(245,197,24,0.08);border:1px solid rgba(245,197,24,0.3);border-radius:6px;padding:0.65rem 1rem;margin-bottom:1.25rem;font-family:var(--mono);font-size:0.72rem;color:var(--yellow);">
+      ⚠ DEMO MODE — Using sample data. Replace <code>firebaseConfig</code> in <code>firebase-config.js</code> to connect your live Firebase project.
+    </div>` : ''}
+
+    <!-- Stat Cards -->
+    <div class="stat-grid">
+      <div class="stat-card critical">
+        <div class="stat-label">Critical Active</div>
+        <div class="stat-value">${s.critical}</div>
+        <div class="stat-change">requires immediate action</div>
+      </div>
+      <div class="stat-card high">
+        <div class="stat-label">High Severity</div>
+        <div class="stat-value">${s.high}</div>
+        <div class="stat-change">active incidents</div>
+      </div>
+      <div class="stat-card info">
+        <div class="stat-label">Open Incidents</div>
+        <div class="stat-value">${s.open}</div>
+        <div class="stat-change">awaiting resolution</div>
+      </div>
+      <div class="stat-card low">
+        <div class="stat-label">Resolved</div>
+        <div class="stat-value">${s.resolved}</div>
+        <div class="stat-change">closed this period</div>
+      </div>
+      <div class="stat-card medium">
+        <div class="stat-label">SLA Warning</div>
+        <div class="stat-value">${s.slaAt}</div>
+        <div class="stat-change">expiring within 4h</div>
+      </div>
+      <div class="stat-card info">
+        <div class="stat-label">Total Incidents</div>
+        <div class="stat-value">${s.total}</div>
+        <div class="stat-change">all time</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid-2" style="margin-bottom:1.25rem;" id="trends">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Incident Trend — Last 14 Days</span>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Attack Type Distribution</span>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap">
+            <canvas id="attackChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heatmap + Severity -->
+    <div class="grid-2" style="margin-bottom:1.25rem;" id="heatmap">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Risk × Severity Heatmap</span>
+        </div>
+        <div class="panel-body" id="heatmapPanel"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Severity Distribution</span>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap">
+            <canvas id="sevChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Incidents -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Recent Incidents</span>
+        <a href="incidents.html" class="btn btn-ghost" style="font-size:0.72rem;padding:0.3rem 0.65rem;">View All →</a>
+      </div>
+      <table class="incident-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Severity</th>
+            <th>State</th>
+            <th>Attack Type</th>
+            <th>Assignee</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="recentBody"></tbody>
+      </table>
+    </div>
+  `;
+
+  // Render recent rows
+  const tbody = document.getElementById('recentBody');
+  if (recent.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No incidents found</td></tr>`;
+  } else {
+    tbody.innerHTML = recent.map(inc => `
+      <tr class="row-${inc.severity}" onclick="location.href='incident-detail.html?id=${inc.id}'">
+        <td class="inc-id">${inc.id}</td>
+        <td class="inc-title">${inc.title}</td>
+        <td>${severityBadge(inc.severity)}</td>
+        <td>${stateBadge(inc.state)}</td>
+        <td style="font-size:0.82rem;color:var(--text-dim)">${inc.attackType || '—'}</td>
+        <td style="font-size:0.82rem">${inc.assignee || '—'}</td>
+        <td class="mono text-muted" style="font-size:0.7rem">${timeAgo(inc.createdAt)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ── Trend chart ───────────────────────────────────────────
+  const actLabels = Object.keys(activity);
+  const actData = Object.values(activity);
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: actLabels,
+      datasets: [{
+        data: actData,
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,0.07)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#00d4ff',
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1e2d3d' }, ticks: { maxTicksLimit: 7 } },
+        y: { grid: { color: '#1e2d3d' }, min: 0, ticks: { stepSize: 1 } }
+      }
+    }
+  });
+
+  // ── Attack type doughnut ──────────────────────────────────
+  const atLabels = Object.keys(attackTypes);
+  const atData = Object.values(attackTypes);
+  const COLORS = ['#ff2b4a','#ff7c2a','#f5c518','#00d4ff','#00e676','#7b68ee','#ff69b4'];
+  new Chart(document.getElementById('attackChart'), {
+    type: 'doughnut',
+    data: {
+      labels: atLabels,
+      datasets: [{
+        data: atData,
+        backgroundColor: COLORS.slice(0, atLabels.length),
+        borderColor: '#0d1117',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#5a7a96', boxWidth: 12, padding: 10, font: { size: 11 } }
+        }
+      },
+      cutout: '62%'
+    }
+  });
+
+  // ── Severity bar chart ────────────────────────────────────
+  new Chart(document.getElementById('sevChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Critical', 'High', 'Medium', 'Low'],
+      datasets: [{
+        data: [severityDist.critical, severityDist.high, severityDist.medium, severityDist.low],
+        backgroundColor: ['#ff2b4a','#ff7c2a','#f5c518','#00e676'],
+        borderRadius: 3,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: '#1e2d3d' }, min: 0, ticks: { stepSize: 1 } }
+      }
+    }
+  });
+
+  // ── Risk × Severity heatmap ───────────────────────────────
+  renderHeatmap(incidents);
+}
+
+function renderHeatmap(incidents) {
+  const risks = ['Critical','High','Medium','Low'];
+  const sevs = ['Critical','High','Medium','Low'];
+  const grid = {};
+  risks.forEach(r => sevs.forEach(s => { grid[`${r}-${s}`] = 0; }));
+  incidents.forEach(inc => {
+    const k = `${capitalize(inc.severity)}-${capitalize(inc.attackType)}`;
+    // Just count by severity vs state for heatmap visual
+  });
+
+  // Create a visual heatmap: severity vs state
+  const states = ['open','investigating','contained','resolved'];
+  const matrix = {};
+  const sevList = ['critical','high','medium','low'];
+  sevList.forEach(sev => {
+    matrix[sev] = {};
+    states.forEach(st => { matrix[sev][st] = 0; });
+  });
+  incidents.forEach(inc => {
+    if (matrix[inc.severity] && matrix[inc.severity][inc.state] !== undefined) {
+      matrix[inc.severity][inc.state]++;
+    }
+  });
+  const maxVal = Math.max(1, ...Object.values(matrix).flatMap(r => Object.values(r)));
+
+  const panel = document.getElementById('heatmapPanel');
+  const colLabels = states.map(s => `<div style="font-family:var(--mono);font-size:0.6rem;color:var(--text-muted);text-align:center;letter-spacing:0.05em;text-transform:uppercase;">${s}</div>`).join('');
+
+  const rows = sevList.map(sev => {
+    const cells = states.map(st => {
+      const val = matrix[sev][st];
+      const intensity = val === 0 ? 0 : Math.ceil((val / maxVal) * 4);
+      return `
+        <div class="heatmap-cell heat-${intensity}" title="${sev} / ${st}: ${val}"
+          style="display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:0.65rem;color:${intensity > 2 ? '#000' : 'var(--text-dim)'};">
+          ${val > 0 ? val : ''}
+        </div>`;
+    }).join('');
+    const sevColor = { critical:'var(--red)', high:'var(--orange)', medium:'var(--yellow)', low:'var(--green)' }[sev];
+    return `
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <div style="font-family:var(--mono);font-size:0.65rem;color:${sevColor};width:58px;text-align:right;text-transform:uppercase;letter-spacing:0.06em;">${sev}</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;flex:1;">${cells}</div>
+      </div>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+      <div style="width:58px;"></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;flex:1;">${colLabels}</div>
+    </div>
+    ${rows}
+    <div style="margin-top:1rem;display:flex;align-items:center;gap:0.5rem;">
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--text-muted);">LOW</span>
+      <div style="display:flex;gap:2px;">
+        ${[0,1,2,3,4].map(i => `<div style="width:18px;height:10px;border-radius:1px;" class="heat-${i}"></div>`).join('')}
+      </div>
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--text-muted);">HIGH</span>
+    </div>
+  `;
+}
+
+function capitalize(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+init();
+</script>
+</body>
+</html>

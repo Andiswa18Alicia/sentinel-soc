@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SENTINEL — Incidents</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</head>
+<body>
+
+<div class="app-shell" id="shell">
+  <main class="main-content" id="main"></main>
+</div>
+
+<!-- Create Incident Modal -->
+<div class="modal-overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">// New Security Incident</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Incident Title *</label>
+        <input type="text" id="f-title" placeholder="Brief description of the incident">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Severity *</label>
+          <select id="f-severity">
+            <option value="">Select severity</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Attack Type *</label>
+          <select id="f-attackType">
+            <option value="">Select type</option>
+            <option value="Ransomware">Ransomware</option>
+            <option value="Phishing">Phishing</option>
+            <option value="Unauthorized Access">Unauthorized Access</option>
+            <option value="Data Exfiltration">Data Exfiltration</option>
+            <option value="Malware">Malware</option>
+            <option value="DDoS">DDoS</option>
+            <option value="Reconnaissance">Reconnaissance</option>
+            <option value="Insider Threat">Insider Threat</option>
+            <option value="Supply Chain">Supply Chain</option>
+            <option value="Zero-Day Exploit">Zero-Day Exploit</option>
+            <option value="Social Engineering">Social Engineering</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Source IP / Indicator</label>
+          <input type="text" id="f-sourceIP" placeholder="e.g. 192.168.1.1 or domain">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Affected System</label>
+          <input type="text" id="f-affectedSystem" placeholder="e.g. PROD-DB-01 or Email Gateway">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Assignee</label>
+          <input type="text" id="f-assignee" placeholder="Analyst name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Initial State</label>
+          <select id="f-state">
+            <option value="open">Open</option>
+            <option value="investigating">Investigating</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tags (comma-separated)</label>
+        <input type="text" id="f-tags" placeholder="e.g. ransomware, lateral-movement, db">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description *</label>
+        <textarea id="f-description" rows="4" placeholder="Detailed description of what was observed, when, and initial impact assessment..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createIncident()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        Create Incident
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allIncidents = [];
+let filtered = [];
+
+async function init() {
+  const incidents = await DataLayer.getIncidents();
+  const critCount = incidents.filter(i => i.severity === 'critical' && !['resolved','closed'].includes(i.state)).length;
+
+  document.getElementById('shell').insertAdjacentHTML('afterbegin', buildTopbar(critCount) + NAV_HTML);
+  startClock(document.getElementById('clock'));
+  setActiveNav();
+
+  allIncidents = incidents;
+  filtered = [...incidents];
+  renderPage(incidents);
+  renderTable(filtered);
+}
+
+function renderPage(incidents) {
+  document.getElementById('main').innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Incident Registry</h1>
+        <p class="page-subtitle mono">// ${incidents.length} TOTAL INCIDENTS · CLICK ANY ROW TO INVESTIGATE</p>
+      </div>
+      <button class="btn btn-primary" onclick="openModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Report Incident
+      </button>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <input type="text" id="searchInput" placeholder="Search title, IP, assignee..." oninput="applyFilters()">
+      <select id="sevFilter" onchange="applyFilters()">
+        <option value="">All Severities</option>
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select id="stateFilter" onchange="applyFilters()">
+        <option value="">All States</option>
+        <option value="open">Open</option>
+        <option value="investigating">Investigating</option>
+        <option value="contained">Contained</option>
+        <option value="resolved">Resolved</option>
+        <option value="closed">Closed</option>
+      </select>
+      <select id="typeFilter" onchange="applyFilters()">
+        <option value="">All Types</option>
+        <option value="Ransomware">Ransomware</option>
+        <option value="Phishing">Phishing</option>
+        <option value="Unauthorized Access">Unauthorized Access</option>
+        <option value="Data Exfiltration">Data Exfiltration</option>
+        <option value="Malware">Malware</option>
+        <option value="DDoS">DDoS</option>
+        <option value="Reconnaissance">Reconnaissance</option>
+        <option value="Insider Threat">Insider Threat</option>
+      </select>
+      <button class="btn btn-ghost" onclick="clearFilters()">Clear</button>
+      <span class="spacer"></span>
+      <span id="filterCount" style="font-family:var(--mono);font-size:0.7rem;color:var(--text-muted);"></span>
+    </div>
+
+    <!-- Table -->
+    <div class="panel">
+      <table class="incident-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title & Tags</th>
+            <th>Severity</th>
+            <th>State</th>
+            <th>Attack Type</th>
+            <th>Source IP</th>
+            <th>Assignee</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody id="incidentBody">
+          <tr><td colspan="8" class="loading">Loading incidents</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTable(incidents) {
+  const body = document.getElementById('incidentBody');
+  const countEl = document.getElementById('filterCount');
+  if (countEl) countEl.textContent = `${incidents.length} results`;
+
+  if (!body) return;
+
+  if (incidents.length === 0) {
+    body.innerHTML = `<tr><td colspan="8" class="empty-state">No incidents match your filters</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = incidents.map(inc => {
+    const tags = (inc.tags || []).slice(0, 2).map(t => `<span class="tag">${t}</span>`).join('');
+    return `
+    <tr class="row-${inc.severity}" onclick="location.href='incident-detail.html?id=${inc.id}'">
+      <td class="inc-id">${inc.id}</td>
+      <td class="inc-title">
+        ${inc.title}
+        ${tags}
+      </td>
+      <td>${severityBadge(inc.severity)}</td>
+      <td>${stateBadge(inc.state)}</td>
+      <td style="font-size:0.82rem;color:var(--text-dim)">${inc.attackType || '—'}</td>
+      <td class="mono" style="font-size:0.72rem;color:var(--text-muted)">${inc.sourceIP || '—'}</td>
+      <td style="font-size:0.82rem">${inc.assignee || '—'}</td>
+      <td class="mono text-muted" style="font-size:0.68rem">${timeAgo(inc.createdAt)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function applyFilters() {
+  const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  const sev = document.getElementById('sevFilter')?.value || '';
+  const state = document.getElementById('stateFilter')?.value || '';
+  const type = document.getElementById('typeFilter')?.value || '';
+
+  filtered = allIncidents.filter(inc => {
+    const matchQ = !q || inc.title.toLowerCase().includes(q) ||
+      (inc.sourceIP || '').toLowerCase().includes(q) ||
+      (inc.assignee || '').toLowerCase().includes(q) ||
+      (inc.affectedSystem || '').toLowerCase().includes(q);
+    const matchSev = !sev || inc.severity === sev;
+    const matchState = !state || inc.state === state;
+    const matchType = !type || inc.attackType === type;
+    return matchQ && matchSev && matchState && matchType;
+  });
+
+  renderTable(filtered);
+}
+
+function clearFilters() {
+  ['searchInput','sevFilter','stateFilter','typeFilter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  filtered = [...allIncidents];
+  renderTable(filtered);
+}
+
+// ── Modal ─────────────────────────────────────────────────────
+function openModal() {
+  document.getElementById('createModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('createModal').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+document.getElementById('createModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('createModal')) closeModal();
+});
+
+async function createIncident() {
+  const title = document.getElementById('f-title').value.trim();
+  const severity = document.getElementById('f-severity').value;
+  const attackType = document.getElementById('f-attackType').value;
+  const description = document.getElementById('f-description').value.trim();
+
+  if (!title || !severity || !attackType || !description) {
+    showToast('Please fill in all required fields.', 'error');
+    return;
+  }
+
+  const tagsRaw = document.getElementById('f-tags').value;
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+
+  const data = {
+    title,
+    severity,
+    attackType,
+    description,
+    sourceIP: document.getElementById('f-sourceIP').value.trim(),
+    affectedSystem: document.getElementById('f-affectedSystem').value.trim(),
+    assignee: document.getElementById('f-assignee').value.trim(),
+    state: document.getElementById('f-state').value,
+    tags
+  };
+
+  try {
+    const id = await DataLayer.createIncident(data);
+    showToast(`Incident ${id} created.`, 'success');
+    closeModal();
+    // Reset form
+    ['f-title','f-severity','f-attackType','f-sourceIP','f-affectedSystem','f-assignee','f-tags','f-description'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    // Reload
+    allIncidents = await DataLayer.getIncidents();
+    filtered = [...allIncidents];
+    renderTable(filtered);
+
+    // Go to detail
+    setTimeout(() => { location.href = `incident-detail.html?id=${id}`; }, 1200);
+  } catch (err) {
+    showToast('Error creating incident: ' + err.message, 'error');
+  }
+}
+
+init();
+</script>
+</body>
+</html>
