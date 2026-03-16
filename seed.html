@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SENTINEL — Seed Demo Data</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
+    .seed-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      max-width: 640px;
+      width: 100%;
+    }
+    .seed-title {
+      font-family: var(--cond);
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    .seed-sub {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+    }
+    .log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.8;
+      min-height: 200px;
+      max-height: 340px;
+      overflow-y: auto;
+      margin-bottom: 1.25rem;
+    }
+    .log-line { color: var(--text-dim); }
+    .log-line.ok { color: var(--green); }
+    .log-line.err { color: var(--red); }
+    .log-line.info { color: var(--cyan); }
+    .log-line.warn { color: var(--yellow); }
+  </style>
+</head>
+<body>
+<div class="seed-card">
+  <div class="seed-title">// Demo Data Seeder</div>
+  <div class="seed-sub">Writes 8 realistic incidents to your Firestore database. Run once only.</div>
+  <div class="log" id="log"><span class="log-line info">Ready. Click seed to begin...</span></div>
+  <div style="display:flex;gap:0.75rem;">
+    <button class="btn btn-primary" id="seedBtn" onclick="seedData()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="5 12 12 19 19 6"/></svg>
+      Seed Incidents
+    </button>
+    <a href="index.html" class="btn btn-ghost">← Back to Dashboard</a>
+  </div>
+</div>
+
+<script>
+function log(msg, type = '') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+const now = Date.now();
+const h = 3600000;
+const d = 86400000;
+
+const INCIDENTS = [
+  {
+    id: "INC-2024-001",
+    title: "Ransomware Encryption Detected on PROD-DB-01",
+    severity: "critical",
+    attackType: "Ransomware",
+    state: "resolved",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Alice Nkosi",
+    sourceIP: "192.168.14.22",
+    affectedSystem: "PROD-DB-01 (Primary Database Server)",
+    description: "Dylan from IT helpdesk received a call from the finance department at 08:47 reporting that files on the shared drive were showing a .locked extension and a ransom note (README_DECRYPT.txt) had appeared on multiple desktops. Dylan immediately escalated to the SOC. EDR telemetry confirmed lateral movement originating from workstation WS-Finance-04 followed by mass file encryption on PROD-DB-01. The ransom note demanded 2.5 BTC. Backups from 02:00 confirmed clean. Server isolated and restored from backup. Total downtime: 4 hours 22 minutes.",
+    tags: ["ransomware", "lateral-movement", "db", "finance", "backup-restored"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Received call from Sarah in Finance at 08:47. She said her files all changed to .locked and there's a weird text file on her desktop. I checked two other finance machines — same thing. Escalating to SOC immediately. I've asked everyone in finance to stop using their computers.",
+        ts: new Date(now - d * 3 - h * 6).toISOString()
+      },
+      {
+        author: "Alice Nkosi",
+        text: "Confirmed ransomware activity. EDR shows LockBit 3.0 variant. Lateral movement started from WS-Finance-04 at 08:31 — 16 minutes before Dylan's call. PROD-DB-01 isolated from network. Forensic snapshot taken. Checking backup integrity now.",
+        ts: new Date(now - d * 3 - h * 5).toISOString()
+      },
+      {
+        author: "Alice Nkosi",
+        text: "Backup from 02:00 verified clean. Beginning restore process. Estimated 2.5 hours for full restore. Finance team moved to manual processes temporarily. WS-Finance-04 seized for forensic analysis — likely patient zero via phishing email received yesterday.",
+        ts: new Date(now - d * 3 - h * 4).toISOString()
+      },
+      {
+        author: "Alice Nkosi",
+        text: "Restore complete. All services back online. Ran full AV sweep across all finance workstations — 2 additional machines showed traces of the dropper, both cleaned. Password resets issued to all finance staff. Monitoring for 24h before closing.",
+        ts: new Date(now - d * 3 - h * 1).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "edr-lockbit-telemetry.json", size: "142 KB", uploadedAt: new Date(now - d * 3 - h * 5).toISOString() },
+      { name: "ransom-note-README_DECRYPT.txt", size: "2 KB", uploadedAt: new Date(now - d * 3 - h * 5.5).toISOString() },
+      { name: "WS-Finance-04-forensic-image.e01", size: "28.4 GB", uploadedAt: new Date(now - d * 3 - h * 3).toISOString() },
+      { name: "network-traffic-capture-0847-0920.pcap", size: "3.2 MB", uploadedAt: new Date(now - d * 3 - h * 4.5).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: files encrypted in Finance dept", ts: new Date(now - d * 3 - h * 6).toISOString() },
+      { event: "Incident created and assigned to Alice Nkosi", ts: new Date(now - d * 3 - h * 5.9).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - d * 3 - h * 5.8).toISOString() },
+      { event: "PROD-DB-01 isolated from network", ts: new Date(now - d * 3 - h * 5.5).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - d * 3 - h * 6).toISOString() },
+      { event: "Note added by Alice Nkosi", ts: new Date(now - d * 3 - h * 5).toISOString() },
+      { event: "Evidence attached: edr-lockbit-telemetry.json", ts: new Date(now - d * 3 - h * 5).toISOString() },
+      { event: "State changed to: contained", ts: new Date(now - d * 3 - h * 4).toISOString() },
+      { event: "Note added by Alice Nkosi", ts: new Date(now - d * 3 - h * 4).toISOString() },
+      { event: "Restore from backup completed successfully", ts: new Date(now - d * 3 - h * 1.5).toISOString() },
+      { event: "Note added by Alice Nkosi", ts: new Date(now - d * 3 - h * 1).toISOString() },
+      { event: "State changed to: resolved", ts: new Date(now - d * 3).toISOString() }
+    ],
+    createdAt: new Date(now - d * 3 - h * 6).toISOString(),
+    updatedAt: new Date(now - d * 3).toISOString()
+  },
+
+  {
+    id: "INC-2024-002",
+    title: "Suspicious Admin Login from Unknown Geolocation",
+    severity: "high",
+    attackType: "Unauthorized Access",
+    state: "resolved",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Ben Dlamini",
+    sourceIP: "45.33.32.156",
+    affectedSystem: "Active Directory / Azure AD",
+    description: "Dylan received an automated alert from the IT monitoring system at 14:22 flagging a successful login to the domain admin account 'jadmin' from IP 45.33.32.156 (Lagos, Nigeria). The legitimate user James Adebayo had logged in from Cape Town at 13:55 — a physical impossibility (impossible travel). Dylan confirmed with James directly that he did not initiate the second login. Account immediately locked pending investigation. No evidence of data access found in audit logs during the 27-minute window the attacker had access.",
+    tags: ["unauthorized-access", "admin", "impossible-travel", "active-directory"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Got an impossible travel alert for user jadmin. James was in Cape Town at 13:55 then Lagos at 14:22 — that's 27 minutes. Called James directly, he confirms he only logged in from his office this afternoon and has not been to Nigeria. Locking account now and escalating.",
+        ts: new Date(now - d * 5 - h * 4).toISOString()
+      },
+      {
+        author: "Ben Dlamini",
+        text: "Reviewed Azure AD sign-in logs. The Nigerian login used correct credentials — this is likely a credential compromise, possibly from a phishing email or credential stuffing. The attacker accessed the admin portal for 27 minutes. Reviewing audit logs for any changes made during that window.",
+        ts: new Date(now - d * 5 - h * 3).toISOString()
+      },
+      {
+        author: "Ben Dlamini",
+        text: "Audit log review complete. No group policy changes, no new accounts created, no data exported during the 27-minute window. Attacker appears to have been reconnaissance only. James's credentials reset, MFA enforced. Checking if jadmin credentials appear in any breach databases — found on HaveIBeenPwned linked to a 2023 LinkedIn breach. Recommending company-wide password audit.",
+        ts: new Date(now - d * 5 - h * 1).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "azure-ad-signin-logs-export.csv", size: "88 KB", uploadedAt: new Date(now - d * 5 - h * 3).toISOString() },
+      { name: "audit-log-27min-window.pdf", size: "1.1 MB", uploadedAt: new Date(now - d * 5 - h * 2.5).toISOString() },
+      { name: "hibp-breach-report-jadmin.png", size: "245 KB", uploadedAt: new Date(now - d * 5 - h * 1).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: impossible travel alert for jadmin", ts: new Date(now - d * 5 - h * 4).toISOString() },
+      { event: "Incident created and assigned to Ben Dlamini", ts: new Date(now - d * 5 - h * 3.9).toISOString() },
+      { event: "Account jadmin locked", ts: new Date(now - d * 5 - h * 3.8).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - d * 5 - h * 3.5).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - d * 5 - h * 4).toISOString() },
+      { event: "Note added by Ben Dlamini", ts: new Date(now - d * 5 - h * 3).toISOString() },
+      { event: "Audit log review completed — no destructive actions found", ts: new Date(now - d * 5 - h * 1.5).toISOString() },
+      { event: "Note added by Ben Dlamini", ts: new Date(now - d * 5 - h * 1).toISOString() },
+      { event: "Credentials reset, MFA enforced on jadmin", ts: new Date(now - d * 5 - h * 0.5).toISOString() },
+      { event: "State changed to: resolved", ts: new Date(now - d * 5).toISOString() }
+    ],
+    createdAt: new Date(now - d * 5 - h * 4).toISOString(),
+    updatedAt: new Date(now - d * 5).toISOString()
+  },
+
+  {
+    id: "INC-2024-003",
+    title: "Large-Scale Phishing Campaign Targeting All Staff",
+    severity: "high",
+    attackType: "Phishing",
+    state: "contained",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Cara van Wyk",
+    sourceIP: "mail.hr-payslip-portal.co.za",
+    affectedSystem: "Email Gateway / Microsoft 365",
+    description: "Dylan received 6 separate calls within 20 minutes from staff across departments reporting a suspicious email claiming to be from HR about accessing December payslips via a new portal. Dylan clicked the link in a sandboxed browser and confirmed it leads to a credential harvesting page mimicking the company's internal HR portal. Email header analysis shows the sending domain hr-payslip-portal.co.za was registered 3 days ago. A total of 187 emails were delivered before the gateway rule was applied. 12 staff members confirmed they entered their credentials on the fake site.",
+    tags: ["phishing", "credential-harvesting", "email", "hr-impersonation", "staff-wide"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Getting back-to-back calls about a payslip email from 'HR'. Checked it myself in a sandbox — it's a fake login page, looks very convincing, identical to our real HR portal. I've already had 6 people tell me they clicked it. Sending a company-wide warning email now and escalating to SOC.",
+        ts: new Date(now - d * 1 - h * 8).toISOString()
+      },
+      {
+        author: "Cara van Wyk",
+        text: "Pulled the phishing email from gateway logs. Domain hr-payslip-portal.co.za registered 3 days ago via a privacy-protected registrar. 187 emails delivered total. Running a query now to identify who clicked the tracking pixel — that will tell us who opened it. Dylan's count of 12 credential submissions confirmed via the phishing kit's own logs (we found an unsecured log file on the phishing server). Blocking domain across all controls now.",
+        ts: new Date(now - d * 1 - h * 7).toISOString()
+      },
+      {
+        author: "Cara van Wyk",
+        text: "12 compromised accounts confirmed: [see evidence file for full list]. All 12 passwords reset and sessions terminated. MFA push notifications sent to all 12. IT has been asked to call each of the 12 directly to verify identity before re-enabling. Domain blocked on email gateway, web proxy, and DNS. Monitoring for any sign-in activity from the 12 accounts in the last 2 hours — none detected. Incident contained.",
+        ts: new Date(now - d * 1 - h * 4).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "phishing-email-original.eml", size: "38 KB", uploadedAt: new Date(now - d * 1 - h * 7.5).toISOString() },
+      { name: "fake-portal-screenshot.png", size: "892 KB", uploadedAt: new Date(now - d * 1 - h * 7.5).toISOString() },
+      { name: "compromised-accounts-list.xlsx", size: "14 KB", uploadedAt: new Date(now - d * 1 - h * 4).toISOString() },
+      { name: "phishing-kit-credential-log.txt", size: "6 KB", uploadedAt: new Date(now - d * 1 - h * 6).toISOString() },
+      { name: "email-gateway-delivery-report.csv", size: "52 KB", uploadedAt: new Date(now - d * 1 - h * 7).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: suspicious payslip phishing email", ts: new Date(now - d * 1 - h * 8).toISOString() },
+      { event: "Incident created and assigned to Cara van Wyk", ts: new Date(now - d * 1 - h * 7.9).toISOString() },
+      { event: "Company-wide warning email sent by Dylan", ts: new Date(now - d * 1 - h * 7.8).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - d * 1 - h * 7.5).toISOString() },
+      { event: "Phishing domain blocked on email gateway", ts: new Date(now - d * 1 - h * 7).toISOString() },
+      { event: "Phishing domain blocked on web proxy and DNS", ts: new Date(now - d * 1 - h * 6.5).toISOString() },
+      { event: "Note added by Cara van Wyk", ts: new Date(now - d * 1 - h * 7).toISOString() },
+      { event: "12 compromised accounts identified", ts: new Date(now - d * 1 - h * 5).toISOString() },
+      { event: "All 12 compromised account passwords reset", ts: new Date(now - d * 1 - h * 4.5).toISOString() },
+      { event: "Note added by Cara van Wyk", ts: new Date(now - d * 1 - h * 4).toISOString() },
+      { event: "State changed to: contained", ts: new Date(now - d * 1 - h * 3.5).toISOString() }
+    ],
+    createdAt: new Date(now - d * 1 - h * 8).toISOString(),
+    updatedAt: new Date(now - d * 1 - h * 3.5).toISOString()
+  },
+
+  {
+    id: "INC-2024-004",
+    title: "DNS Tunneling / Data Exfiltration from Internal Workstation",
+    severity: "critical",
+    attackType: "Data Exfiltration",
+    state: "investigating",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Alice Nkosi",
+    sourceIP: "10.0.4.88",
+    affectedSystem: "WS-DEV-088 / DNS Infrastructure",
+    description: "Dylan noticed an automated NDR (Network Detection & Response) alert on the monitoring screen showing anomalously high DNS query volume from workstation WS-DEV-088 (assigned to developer Thabo Mokoena). The queries were unusually large TXT record lookups to the domain tunnel.exfil-c2.net — a pattern consistent with DNS tunneling tools such as iodine or dnscat2. This suggests an attacker may have established a covert command-and-control channel through DNS to bypass firewall rules. The full scope of data potentially exfiltrated is not yet known. Thabo is on leave this week — his machine should not be generating any traffic.",
+    tags: ["exfiltration", "dns-tunneling", "c2", "developer-machine", "active-threat"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "NDR dashboard flagged WS-DEV-088 with a DNS anomaly score of 98/100. Thabo is on leave this week so that machine shouldn't be doing anything. I checked and it's physically sitting at his desk — no one should be on it. The DNS queries are going to some sketchy domain. Escalating immediately, this looks serious.",
+        ts: new Date(now - h * 3).toISOString()
+      },
+      {
+        author: "Alice Nkosi",
+        text: "Confirmed DNS tunneling. The queries are base64-encoded data chunks being sent as subdomains to tunnel.exfil-c2.net — classic dnscat2 pattern. Volume suggests approximately 340MB of data may have been exfiltrated over the past 18 hours. WS-DEV-088 has been isolated. DNS policy updated to block all external resolvers — all DNS now forced through internal resolver only. Pulling full DNS logs for the last 7 days to understand the full scope. Thabo has been contacted — he says he left his machine unlocked before going on leave.",
+        ts: new Date(now - h * 2).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "ndr-dns-anomaly-alert.json", size: "67 KB", uploadedAt: new Date(now - h * 2.5).toISOString() },
+      { name: "dns-query-log-18hrs.txt", size: "4.8 MB", uploadedAt: new Date(now - h * 2).toISOString() },
+      { name: "wireshark-dns-tunnel-capture.pcap", size: "12.3 MB", uploadedAt: new Date(now - h * 1.5).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: DNS anomaly on WS-DEV-088", ts: new Date(now - h * 3).toISOString() },
+      { event: "Incident created and assigned to Alice Nkosi", ts: new Date(now - h * 2.9).toISOString() },
+      { event: "WS-DEV-088 isolated from network", ts: new Date(now - h * 2.7).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - h * 2.5).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - h * 3).toISOString() },
+      { event: "DNS policy updated — external resolvers blocked", ts: new Date(now - h * 2.2).toISOString() },
+      { event: "Note added by Alice Nkosi", ts: new Date(now - h * 2).toISOString() },
+      { event: "Evidence attached: wireshark-dns-tunnel-capture.pcap", ts: new Date(now - h * 1.5).toISOString() }
+    ],
+    createdAt: new Date(now - h * 3).toISOString(),
+    updatedAt: new Date(now - h * 1.5).toISOString()
+  },
+
+  {
+    id: "INC-2024-005",
+    title: "Brute Force Attack Against VPN Gateway",
+    severity: "medium",
+    attackType: "Unauthorized Access",
+    state: "contained",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Ben Dlamini",
+    sourceIP: "185.220.101.47",
+    affectedSystem: "VPN Gateway (Fortinet FortiGate)",
+    description: "Dylan was reviewing the daily firewall summary report and noticed 14,832 failed authentication attempts against the VPN gateway between 02:00 and 05:30 from IP 185.220.101.47 — a known Tor exit node. The attack was a credential stuffing attempt using a wordlist. No successful authentications were recorded. The IP has since been permanently blocked and account lockout policy has been tightened from 10 attempts to 5 attempts. Rate limiting has been applied to the VPN authentication endpoint.",
+    tags: ["brute-force", "vpn", "tor", "credential-stuffing", "fortinet"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Checking the daily firewall report and saw nearly 15,000 failed VPN login attempts overnight from one IP. Checked it on AbuseIPDB — it's a Tor exit node with 847 reports. No successful logins but this is a lot of noise. Logging it and escalating.",
+        ts: new Date(now - d * 2 - h * 3).toISOString()
+      },
+      {
+        author: "Ben Dlamini",
+        text: "Confirmed credential stuffing via Tor exit node 185.220.101.47. The username list used contains 312 valid company email addresses — these were likely scraped from LinkedIn or a previous breach. No successful auths. IP permanently blocked. Updating lockout policy from 10 to 5 attempts and enabling geo-blocking for Tor exit nodes on the VPN. Recommending MFA enforcement for all VPN users as a priority.",
+        ts: new Date(now - d * 2 - h * 1).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "fortigate-auth-failure-log.csv", size: "2.3 MB", uploadedAt: new Date(now - d * 2 - h * 2).toISOString() },
+      { name: "abuseipdb-report-185.220.101.47.pdf", size: "310 KB", uploadedAt: new Date(now - d * 2 - h * 2.5).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: 14,832 failed VPN auth attempts", ts: new Date(now - d * 2 - h * 3).toISOString() },
+      { event: "Incident created and assigned to Ben Dlamini", ts: new Date(now - d * 2 - h * 2.9).toISOString() },
+      { event: "Source IP 185.220.101.47 permanently blocked", ts: new Date(now - d * 2 - h * 2.5).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - d * 2 - h * 2).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - d * 2 - h * 3).toISOString() },
+      { event: "VPN lockout policy updated: 10 attempts → 5 attempts", ts: new Date(now - d * 2 - h * 1.5).toISOString() },
+      { event: "Note added by Ben Dlamini", ts: new Date(now - d * 2 - h * 1).toISOString() },
+      { event: "State changed to: contained", ts: new Date(now - d * 2 - h * 0.5).toISOString() }
+    ],
+    createdAt: new Date(now - d * 2 - h * 3).toISOString(),
+    updatedAt: new Date(now - d * 2 - h * 0.5).toISOString()
+  },
+
+  {
+    id: "INC-2024-006",
+    title: "Malware Dropper Found on Reception Computer",
+    severity: "medium",
+    attackType: "Malware",
+    state: "resolved",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Cara van Wyk",
+    sourceIP: "10.0.1.5",
+    affectedSystem: "WS-RECEPTION-01",
+    description: "Dylan received a ticket from the receptionist Nomsa Dlamini saying her computer was running very slowly and showing occasional popup windows. Dylan went to reception, ran a quick AV scan and found a trojan dropper (Trojan.GenericKD.47382910) that had evaded the standard AV due to obfuscation. The dropper was attempting to download a second-stage payload from a remote C2 server but the outbound connection was blocked by the firewall. The infection vector appears to be a USB drive Nomsa used to print a document for a walk-in client last Tuesday.",
+    tags: ["malware", "trojan", "dropper", "usb", "reception", "c2-blocked"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Nomsa put in a ticket about her PC being slow. Went down to reception, ran Malwarebytes and it found a trojan that the main AV missed. The machine has been trying to phone home but the firewall blocked it. I've disconnected it from the network. Asked Nomsa about USB usage — she says she used a client's USB drive last Tuesday to print something. Classic infection vector. Machine is offline, logging and escalating.",
+        ts: new Date(now - d * 4 - h * 5).toISOString()
+      },
+      {
+        author: "Cara van Wyk",
+        text: "Analysed the dropper in our sandbox. It's a GenericKD variant that attempts to download Cobalt Strike beacon as second stage. Fortunately the C2 domain (update-srv.net) is on our blocklist so the download never completed. The machine is clean of any secondary payload. Reimaging WS-RECEPTION-01 as a precaution. Adding USB policy — reception machines will have USB ports disabled going forward. Updating AV signatures and pushing to all endpoints.",
+        ts: new Date(now - d * 4 - h * 2).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "malwarebytes-scan-report.txt", size: "18 KB", uploadedAt: new Date(now - d * 4 - h * 5).toISOString() },
+      { name: "dropper-sandbox-analysis.pdf", size: "2.1 MB", uploadedAt: new Date(now - d * 4 - h * 2).toISOString() },
+      { name: "firewall-c2-block-log.csv", size: "44 KB", uploadedAt: new Date(now - d * 4 - h * 3).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: trojan found on WS-RECEPTION-01", ts: new Date(now - d * 4 - h * 5).toISOString() },
+      { event: "WS-RECEPTION-01 disconnected from network", ts: new Date(now - d * 4 - h * 4.9).toISOString() },
+      { event: "Incident created and assigned to Cara van Wyk", ts: new Date(now - d * 4 - h * 4.8).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - d * 4 - h * 4).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - d * 4 - h * 5).toISOString() },
+      { event: "Sandbox analysis complete — no second-stage payload installed", ts: new Date(now - d * 4 - h * 2.5).toISOString() },
+      { event: "Note added by Cara van Wyk", ts: new Date(now - d * 4 - h * 2).toISOString() },
+      { event: "WS-RECEPTION-01 reimaged", ts: new Date(now - d * 4 - h * 1).toISOString() },
+      { event: "USB policy updated — reception ports disabled", ts: new Date(now - d * 4 - h * 0.5).toISOString() },
+      { event: "State changed to: resolved", ts: new Date(now - d * 4).toISOString() }
+    ],
+    createdAt: new Date(now - d * 4 - h * 5).toISOString(),
+    updatedAt: new Date(now - d * 4).toISOString()
+  },
+
+  {
+    id: "INC-2024-007",
+    title: "Insider Threat — Unusual Bulk Data Download Before Resignation",
+    severity: "high",
+    attackType: "Insider Threat",
+    state: "investigating",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Alice Nkosi",
+    sourceIP: "10.0.3.44",
+    affectedSystem: "SharePoint / OneDrive / CRM System",
+    description: "Dylan was processing the offboarding checklist for a resigning sales employee (name withheld — refer to HR case file) when he noticed anomalous DLP (Data Loss Prevention) alerts that had been triggered over the past 72 hours but not actioned. The alerts show the employee downloaded 4.2GB of data from SharePoint and the CRM system including the full customer contact database, pricing models, and sales pipeline data. The employee's last day is tomorrow. HR and Legal have been notified. The employee has not yet been informed of the investigation.",
+    tags: ["insider-threat", "data-theft", "dlp", "crm", "offboarding", "hr-involved"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "Processing offboarding for [name in HR file] and saw a stack of DLP alerts from the past 3 days that weren't actioned — looks like they fell through the cracks. Employee downloaded 4.2GB from SharePoint and CRM. Their last day is tomorrow. I've notified HR and Legal and escalated to SOC. Have not confronted the employee yet on HR's advice.",
+        ts: new Date(now - h * 5).toISOString()
+      },
+      {
+        author: "Alice Nkosi",
+        text: "Reviewing DLP logs and SharePoint audit trail. Downloads include: full customer database (18,400 contacts), Q1-Q4 pricing spreadsheets, and the entire active sales pipeline. Files were downloaded to a personal OneDrive (non-company account) and also to an external USB device connected on Monday at 09:14. Legal has been looped in. HR advising we do not revoke access until tomorrow morning to avoid tipping off the employee. Preserving all forensic evidence now.",
+        ts: new Date(now - h * 3).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "dlp-alert-export-72hrs.pdf", size: "1.4 MB", uploadedAt: new Date(now - h * 4).toISOString() },
+      { name: "sharepoint-audit-log.csv", size: "340 KB", uploadedAt: new Date(now - h * 3).toISOString() },
+      { name: "crm-download-history.xlsx", size: "88 KB", uploadedAt: new Date(now - h * 3).toISOString() },
+      { name: "usb-device-connection-log.txt", size: "4 KB", uploadedAt: new Date(now - h * 2.5).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: bulk data download during offboarding review", ts: new Date(now - h * 5).toISOString() },
+      { event: "Incident created and assigned to Alice Nkosi", ts: new Date(now - h * 4.9).toISOString() },
+      { event: "HR and Legal notified", ts: new Date(now - h * 4.8).toISOString() },
+      { event: "State changed to: investigating", ts: new Date(now - h * 4.5).toISOString() },
+      { event: "Note added by Dylan Pietersen", ts: new Date(now - h * 5).toISOString() },
+      { event: "Forensic preservation of DLP and SharePoint logs initiated", ts: new Date(now - h * 3.5).toISOString() },
+      { event: "Note added by Alice Nkosi", ts: new Date(now - h * 3).toISOString() },
+      { event: "Evidence attached: usb-device-connection-log.txt", ts: new Date(now - h * 2.5).toISOString() }
+    ],
+    createdAt: new Date(now - h * 5).toISOString(),
+    updatedAt: new Date(now - h * 2.5).toISOString()
+  },
+
+  {
+    id: "INC-2024-008",
+    title: "Web Application SQL Injection Attempt on Customer Portal",
+    severity: "high",
+    attackType: "Zero-Day Exploit",
+    state: "open",
+    reportedBy: "Dylan Pietersen",
+    reportedByRole: "IT Helpdesk",
+    assignee: "Ben Dlamini",
+    sourceIP: "91.108.56.149",
+    affectedSystem: "Customer Web Portal (portal.company.co.za)",
+    description: "Dylan received an automated WAF (Web Application Firewall) alert at 07:15 this morning showing a series of SQL injection attempts against the customer login portal. The WAF blocked all attempts but the volume and sophistication of the payloads suggests an automated scanning tool (likely sqlmap). The attacker probed 847 different injection points over 23 minutes. No successful injections confirmed but the dev team needs to review the application logs to confirm no data was accessed before the WAF rules triggered.",
+    tags: ["sql-injection", "waf", "web-application", "automated-scan", "sqlmap"],
+    notes: [
+      {
+        author: "Dylan Pietersen",
+        text: "WAF dashboard showing a flood of SQL injection alerts against the customer portal from 07:15 to 07:38 this morning. All blocked by the WAF but there were 847 attempts. Looks like someone ran sqlmap against us. Logging it and escalating to SOC for a full review — I want to make sure nothing got through before the WAF rules kicked in.",
+        ts: new Date(now - h * 1).toISOString()
+      }
+    ],
+    evidence: [
+      { name: "waf-sqli-alert-log.json", size: "234 KB", uploadedAt: new Date(now - h * 0.75).toISOString() }
+    ],
+    timeline: [
+      { event: "Dylan Pietersen reported: SQL injection attempt on customer portal", ts: new Date(now - h * 1).toISOString() },
+      { event: "Incident created and assigned to Ben Dlamini", ts: new Date(now - h * 0.9).toISOString() },
+      { event: "Source IP 91.108.56.149 blocked on WAF", ts: new Date(now - h * 0.8).toISOString() }
+    ],
+    createdAt: new Date(now - h * 1).toISOString(),
+    updatedAt: new Date(now - h * 0.8).toISOString()
+  }
+];
+
+async function seedData() {
+  const btn = document.getElementById('seedBtn');
+  btn.disabled = true;
+  btn.textContent = 'Seeding...';
+
+  log('Starting seed process...', 'info');
+  log(`Writing ${INCIDENTS.length} incidents to Firestore...`, 'info');
+
+  let success = 0;
+  let failed = 0;
+
+  for (const incident of INCIDENTS) {
+    try {
+      await db.collection('incidents').doc(incident.id).set(incident);
+      log(`✓ ${incident.id} — ${incident.title.substring(0, 55)}...`, 'ok');
+      success++;
+    } catch (err) {
+      log(`✗ ${incident.id} — ERROR: ${err.message}`, 'err');
+      failed++;
+    }
+    // Small delay to avoid hammering Firestore
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  log('', '');
+  log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'info');
+  log(`Seed complete: ${success} succeeded, ${failed} failed`, success === INCIDENTS.length ? 'ok' : 'warn');
+
+  if (success > 0) {
+    log('You can now open the dashboard to see your incidents.', 'info');
+    btn.textContent = '✓ Done';
+    btn.style.background = 'var(--green)';
+    btn.style.color = '#000';
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+</script>
+</body>
+</html>
